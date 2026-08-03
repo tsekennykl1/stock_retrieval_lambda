@@ -1,45 +1,67 @@
 import json
 import yfinance as yf
 
-
-def handler(event, context):
-    """
-    AWS Lambda handler for stock data retrieval.
-
-    Expected event format:
-    {
-        "tickers": ["AAPL", "MSFT"],   # list of ticker symbols
-        "period": "1d"                  # optional, default "1d"
+def lambda_handler(event, context):
+    # CORS headers
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Content-Type": "application/json"
     }
-    """
-    tickers = event.get("tickers", [])
-    period = event.get("period", "1d")
 
-    if not tickers:
+    # Handle preflight OPTIONS request
+    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
         return {
-            "statusCode": 400,
-            "body": json.dumps({"error": "No tickers provided"}),
+            "statusCode": 200,
+            "headers": headers,
+            "body": ""
         }
 
-    results = {}
-    for ticker_symbol in tickers:
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period=period)
+    try:
+        # Get stock symbols from query params
+        params = event.get("queryStringParameters") or {}
+        symbols = params.get("stocks").split(",")
 
-        if hist.empty:
-            results[ticker_symbol] = {"error": "No data found"}
-        else:
-            latest = hist.iloc[-1]
-            results[ticker_symbol] = {
-                "open": round(float(latest["Open"]), 4),
-                "high": round(float(latest["High"]), 4),
-                "low": round(float(latest["Low"]), 4),
-                "close": round(float(latest["Close"]), 4),
-                "volume": int(latest["Volume"]),
-                "date": str(hist.index[-1].date()),
-            }
+        # Fetch stock data for each symbol
+        results = {}
+        for symbol in symbols:
+            symbol = symbol.strip()
+            ticker = yf.Ticker(symbol)
+            info = ticker.history(period="1d", interval="1m")  # Fetch 1-day historical data
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps(results),
-    }
+            if not info.empty:
+                latest_datetime = info.index[-1]
+                latest_data = info.iloc[-1]
+                results[symbol] = {
+                "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
+                "high": round(latest_data["High"], 2),
+                "low": round(latest_data["Low"], 2),
+                "open": round(latest_data["Open"], 2),
+                "price": round(latest_data["Close"], 2),
+                "volume": int(latest_data["Volume"]),
+                "shortName_en": ticker.info.get("shortName", "N/A"),
+                "longName_en": ticker.info.get("longName", "N/A"),
+                "previousClose": round(ticker.info.get("previousClose", 0), 2),
+                "sector": ticker.info.get("sector", "N/A"),
+                "industry": ticker.info.get("industry", "N/A"),
+                "peRatio": round(ticker.info.get("trailingPE", 0), 2),
+                "bookValue": round(ticker.info.get("bookValue", 0), 2)
+
+                }
+                
+            else:
+                results[symbol] = {"error": "No data available"}
+
+        return {
+            "statusCode": 200,
+            "headers": headers,
+            "body": json.dumps(results)
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "headers": headers,
+            "body": json.dumps({"error": str(e)})
+        }
