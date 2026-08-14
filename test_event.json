@@ -1,0 +1,10 @@
+{
+    "queryStringParameters": {
+        "stocks": "0700.HK,0005.HK,0001.HK"
+    },
+    "requestContext": {
+        "http": {
+            "method": "GET"
+        }
+    }
+}
