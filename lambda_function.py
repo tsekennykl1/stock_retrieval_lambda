@@ -21,35 +21,40 @@ def lambda_handler(event, context):
     try:
         # Get stock symbols from query params
         params = event.get("queryStringParameters") or {}
-        symbols = params.get("stocks").split(",")
+        stocks_param = params.get("stocks", "")        # ✅ safe default
+        if not stocks_param:                            # ✅ guard clause
+            return {
+                "statusCode": 400,
+                "headers": headers,
+                "body": json.dumps({"error": "Missing required parameter: stocks"})
+            }
+        symbols = stocks_param.split(",")              # ✅ safe split
 
         # Fetch stock data for each symbol
         results = {}
         for symbol in symbols:
             symbol = symbol.strip()
             ticker = yf.Ticker(symbol)
-            info = ticker.history(period="1d", interval="1m")  # Fetch 1-day historical data
+            info = ticker.history(period="1d", interval="1m")
 
             if not info.empty:
                 latest_datetime = info.index[-1]
                 latest_data = info.iloc[-1]
                 results[symbol] = {
-                "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                "high": round(latest_data["High"], 2),
-                "low": round(latest_data["Low"], 2),
-                "open": round(latest_data["Open"], 2),
-                "price": round(latest_data["Close"], 2),
-                "volume": int(latest_data["Volume"]),
-                "shortName_en": ticker.info.get("shortName", "N/A"),
-                "longName_en": ticker.info.get("longName", "N/A"),
-                "previousClose": round(ticker.info.get("previousClose", 0), 2),
-                "sector": ticker.info.get("sector", "N/A"),
-                "industry": ticker.info.get("industry", "N/A"),
-                "peRatio": round(ticker.info.get("trailingPE", 0), 2),
-                "bookValue": round(ticker.info.get("bookValue", 0), 2)
-
+                    "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
+                    "high": round(latest_data["High"], 2),
+                    "low": round(latest_data["Low"], 2),
+                    "open": round(latest_data["Open"], 2),
+                    "price": round(latest_data["Close"], 2),
+                    "volume": int(latest_data["Volume"]),
+                    "shortName_en": ticker.info.get("shortName", "N/A"),
+                    "longName_en": ticker.info.get("longName", "N/A"),
+                    "previousClose": round(ticker.info.get("previousClose", 0), 2),
+                    "sector": ticker.info.get("sector", "N/A"),
+                    "industry": ticker.info.get("industry", "N/A"),
+                    "peRatio": round(ticker.info.get("trailingPE", 0), 2),
+                    "bookValue": round(ticker.info.get("bookValue", 0), 2)
                 }
-                
             else:
                 results[symbol] = {"error": "No data available"}
 
