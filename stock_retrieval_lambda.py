@@ -2,46 +2,59 @@ import json
 import time
 import yfinance as yf
 
-def fetch_ticker(symbol, max_retries=3):
-    """Fetch single ticker with retry + exponential backoff"""
+def fetch_tickers(symbols, max_retries=3):
+    """Fetch multiple tickers with retry + exponential backoff"""
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.history(period="1d", interval="1m")
-            ticker_info = ticker.info  # ✅ fetch once, reuse below
+            tickers = yf.Tickers(" ".join(symbols))
+            results = {}
 
-            if not info.empty:
-                latest_datetime = info.index[-1]
-                latest_data = info.iloc[-1]
-                return {
-                    "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                    "high": round(latest_data["High"], 2),
-                    "low": round(latest_data["Low"], 2),
-                    "open": round(latest_data["Open"], 2),
-                    "price": round(latest_data["Close"], 2),
-                    "volume": int(latest_data["Volume"]),
-                    "shortName_en": ticker_info.get("shortName", "N/A"),
-                    "longName_en": ticker_info.get("longName", "N/A"),
-                    "previousClose": round(ticker_info.get("previousClose", 0), 2),
-                    "sector": ticker_info.get("sector", "N/A"),
-                    "industry": ticker_info.get("industry", "N/A"),
-                    "peRatio": round(ticker_info.get("trailingPE", 0), 2),
-                    "bookValue": round(ticker_info.get("bookValue", 0), 2)
-                }
-            else:
-                return {"error": "No data available"}
+            for symbol in symbols:
+                ticker = tickers.tickers.get(symbol)
+                if not ticker:
+                    results[symbol] = {"error": "Ticker not found"}
+                    continue
+
+                try:
+                    info = ticker.history(period="1d", interval="1m")
+                    ticker_info = ticker.info  # ✅ fetch once, reuse below
+
+                    if not info.empty:
+                        latest_datetime = info.index[-1]
+                        latest_data = info.iloc[-1]
+                        results[symbol] = {
+                            "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
+                            "high": round(latest_data["High"], 2),
+                            "low": round(latest_data["Low"], 2),
+                            "open": round(latest_data["Open"], 2),
+                            "price": round(latest_data["Close"], 2),
+                            "volume": int(latest_data["Volume"]),
+                            "shortName_en": ticker_info.get("shortName", "N/A"),
+                            "longName_en": ticker_info.get("longName", "N/A"),
+                            "previousClose": round(ticker_info.get("previousClose", 0), 2),
+                            "sector": ticker_info.get("sector", "N/A"),
+                            "industry": ticker_info.get("industry", "N/A"),
+                            "peRatio": round(ticker_info.get("trailingPE", 0), 2),
+                            "bookValue": round(ticker_info.get("bookValue", 0), 2)
+                        }
+                    else:
+                        results[symbol] = {"error": "No data available"}
+                except Exception as e:
+                    results[symbol] = {"error": str(e)}
+
+            return results
 
         except Exception as e:
             err = str(e)
             if any(x in err for x in ["429", "Too Many Requests", "Rate", "rate"]):
                 wait = 2 ** attempt  # 1s → 2s → 4s
-                print(f"[RATE LIMIT] {symbol} attempt {attempt+1}/{max_retries}, retrying in {wait}s")
+                print(f"[RATE LIMIT] attempt {attempt+1}/{max_retries}, retrying in {wait}s")
                 time.sleep(wait)
             else:
-                print(f"[ERROR] {symbol}: {err}")
-                return {"error": err}
+                print(f"[ERROR]: {err}")
+                return {symbol: {"error": err} for symbol in symbols}
 
-    return {"error": "Rate limited after retries. Try again later."}
+    return {symbol: {"error": "Rate limited after retries. Try again later."} for symbol in symbols}
 
 
 def lambda_handler(event, context):
@@ -69,11 +82,8 @@ def lambda_handler(event, context):
         symbols = [s.strip() for s in stocks_param.split(",")]
 
         results = {}
-        for i, symbol in enumerate(symbols):
-            if i > 0:
-                time.sleep(0.5)  # ✅ 500ms between symbols to avoid burst
-            print(f"Fetching {symbol} ({i+1}/{len(symbols)})")
-            results[symbol] = fetch_ticker(symbol)
+        print(f"Fetching {len(symbols)} symbols")
+        results.update(fetch_tickers(symbols))
 
         return {
             "statusCode": 200,
