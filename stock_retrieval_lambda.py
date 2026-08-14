@@ -31,16 +31,20 @@ def lambda_handler(event, context):
         symbols = stocks_param.split(",")              # ✅ safe split
 
         # Fetch stock data for each symbol
+        tickers = yf.Tickers(symbols)
         results = {}
+
         for symbol in symbols:
             symbol = symbol.strip()
-            ticker = yf.Ticker(symbol)
-            info = ticker.history(period="1d", interval="1m")
+            ticker = tickers.tickers.get(symbol)
 
-            if not info.empty:
-                latest_datetime = info.index[-1]
-                latest_data = info.iloc[-1]
-                results[symbol] = {
+            if ticker:
+                info = ticker.history(period="1d", interval="1m")
+
+                if not info.empty:
+                    latest_datetime = info.index[-1]
+                    latest_data = info.iloc[-1]
+                    results[symbol] = {
                     "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
                     "high": round(latest_data["High"], 2),
                     "low": round(latest_data["Low"], 2),
@@ -54,9 +58,11 @@ def lambda_handler(event, context):
                     "industry": ticker.info.get("industry", "N/A"),
                     "peRatio": round(ticker.info.get("trailingPE", 0), 2),
                     "bookValue": round(ticker.info.get("bookValue", 0), 2)
-                }
+                    }
+                else:
+                    results[symbol] = {"error": "No data available"}
             else:
-                results[symbol] = {"error": "No data available"}
+                results[symbol] = {"error": "Ticker not found"}
 
         return {
             "statusCode": 200,
