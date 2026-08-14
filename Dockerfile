@@ -1,7 +1,8 @@
 FROM public.ecr.aws/lambda/python:3.11-arm64
 
 # Install system build tools needed for packages with native extensions
-RUN dnf -y install gcc gcc-c++ make && dnf clean all
+RUN (command -v dnf && dnf -y install gcc gcc-c++ make && dnf clean all) || \
+    (yum -y install gcc gcc-c++ make && yum clean all)
 
 COPY *.py /var/task
 COPY requirements.txt .
