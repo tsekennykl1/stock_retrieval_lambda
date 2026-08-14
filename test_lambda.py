@@ -1,5 +1,5 @@
 import json
-from lambda_function import lambda_handler
+from stock_retrieval_lambda import lambda_handler
 
 # Load the test event
 with open("/Users/kwokleungtse/Documents/AWS/yfinance-lambda/test_event.json") as f:
