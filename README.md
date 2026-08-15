@@ -42,11 +42,22 @@ The handler accepts an event with the following shape:
 
 ## CI/CD — GitHub Actions → AWS ECR
 
-The workflow in `.github/workflows/deploy.yml` triggers on every push to `main` and:
+The workflow in `.github/workflows/deploy.yml` triggers on every push to `main` and can also be run manually (`workflow_dispatch`) from the Actions tab for branch-based deployments. It:
 
 1. Builds the Docker image using the Lambda Python 3.12 base image.
 2. Pushes it to the ECR repository (tagged with both the commit SHA and `latest`).
 3. Updates the Lambda function to use the new image.
+
+### Deploying a fallback branch
+
+If you need to deploy a non-`main` branch (for example `fallback-to-e69bab3`) without merging:
+
+1. Go to **GitHub → Actions → Deploy to AWS ECR**.
+2. Click **Run workflow**.
+3. Select the fallback branch.
+4. Run the workflow and wait for completion.
+
+This deploys the selected branch by building and pushing its image, then updating the Lambda function to that image.
 
 ### Required GitHub Secrets
 
