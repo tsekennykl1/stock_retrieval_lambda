@@ -2,45 +2,67 @@ import json
 import time
 import yfinance as yf
 
+
 def fetch_tickers(symbols, max_retries=3):
-    """Fetch multiple tickers with retry + exponential backoff"""
+    """Fetch multiple tickers via yf.download (batched) with retry + exponential backoff.
+       Returns only OHLCV + datetime (no ticker.info calls).
+    """
+    # Normalize / dedupe while preserving order
+    seen = set()
+    symbols = [s.strip().upper() for s in symbols if s and not (s.strip().upper() in seen or seen.add(s.strip().upper()))]
+
+    if not symbols:
+        return {}
+
+    tickers_str = " ".join(symbols)
+
     for attempt in range(max_retries):
         try:
-            tickers = yf.Tickers(" ".join(symbols))
+            df = yf.download(
+                tickers=tickers_str,
+                period="1d",
+                interval="1m",
+                group_by="ticker",
+                threads=False,
+                auto_adjust=False,
+                progress=False,
+            )
+
             results = {}
 
-            for symbol in symbols:
-                ticker = tickers.tickers.get(symbol)
-                if not ticker:
-                    results[symbol] = {"error": "Ticker not found"}
-                    continue
+            is_multi = hasattr(df.columns, "levels") and len(df.columns.levels) == 2
 
+            for sym in symbols:
                 try:
-                    info = ticker.history(period="1d", interval="1m")
-                    ticker_info = ticker.info  # ✅ fetch once, reuse below
-
-                    if not info.empty:
-                        latest_datetime = info.index[-1]
-                        latest_data = info.iloc[-1]
-                        results[symbol] = {
-                            "datetime": latest_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                            "high": round(latest_data["High"], 2),
-                            "low": round(latest_data["Low"], 2),
-                            "open": round(latest_data["Open"], 2),
-                            "price": round(latest_data["Close"], 2),
-                            "volume": int(latest_data["Volume"]),
-                            "shortName_en": ticker_info.get("shortName", "N/A"),
-                            "longName_en": ticker_info.get("longName", "N/A"),
-                            "previousClose": round(ticker_info.get("previousClose", 0), 2),
-                            "sector": ticker_info.get("sector", "N/A"),
-                            "industry": ticker_info.get("industry", "N/A"),
-                            "peRatio": round(ticker_info.get("trailingPE", 0), 2),
-                            "bookValue": round(ticker_info.get("bookValue", 0), 2)
-                        }
+                    if is_multi:
+                        # columns like (AAPL, 'Open')...
+                        if sym not in df.columns.get_level_values(0):
+                            results[sym] = {"error": "No data available"}
+                            continue
+                        sym_df = df[sym]
                     else:
-                        results[symbol] = {"error": "No data available"}
+                        # single symbol case
+                        sym_df = df
+
+                    sym_df = sym_df.dropna(how="all")
+                    if sym_df.empty:
+                        results[sym] = {"error": "No data available"}
+                        continue
+
+                    latest_dt = sym_df.index[-1]
+                    latest = sym_df.iloc[-1]
+
+                    results[sym] = {
+                        "datetime": latest_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "high": round(float(latest.get("High", 0) or 0), 2),
+                        "low": round(float(latest.get("Low", 0) or 0), 2),
+                        "open": round(float(latest.get("Open", 0) or 0), 2),
+                        "price": round(float(latest.get("Close", 0) or 0), 2),
+                        "volume": int(latest.get("Volume", 0) or 0),
+                    }
+
                 except Exception as e:
-                    results[symbol] = {"error": str(e)}
+                    results[sym] = {"error": str(e)}
 
             return results
 
@@ -52,9 +74,9 @@ def fetch_tickers(symbols, max_retries=3):
                 time.sleep(wait)
             else:
                 print(f"[ERROR]: {err}")
-                return {symbol: {"error": err} for symbol in symbols}
+                return {sym: {"error": err} for sym in symbols}
 
-    return {symbol: {"error": "Rate limited after retries. Try again later."} for symbol in symbols}
+    return {sym: {"error": "Rate limited after retries. Try again later."} for sym in symbols}
 
 
 def lambda_handler(event, context):
@@ -65,7 +87,7 @@ def lambda_handler(event, context):
         "Content-Type": "application/json"
     }
 
-    # Handle preflight OPTIONS
+    # Handle preflight OPTIONS (API Gateway HTTP API v2)
     if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
         return {"statusCode": 200, "headers": headers, "body": ""}
 
@@ -79,11 +101,10 @@ def lambda_handler(event, context):
                 "body": json.dumps({"error": "Missing required parameter: stocks"})
             }
 
-        symbols = [s.strip() for s in stocks_param.split(",")]
+        symbols = [s.strip() for s in stocks_param.split(",") if s.strip()]
+        print(f"Fetching {len(symbols)} symbols via yf.download (no ticker.info)")
 
-        results = {}
-        print(f"Fetching {len(symbols)} symbols")
-        results.update(fetch_tickers(symbols))
+        results = fetch_tickers(symbols)
 
         return {
             "statusCode": 200,
