@@ -55,9 +55,7 @@ def lambda_handler(event, context):
                     "longName_en": ticker.info.get("longName", "N/A"),
                     "previousClose": round(ticker.info.get("previousClose", 0), 2),
                     "sector": ticker.info.get("sector", "N/A"),
-                    "industry": ticker.info.get("industry", "N/A"),
-                    "peRatio": round(ticker.info.get("trailingPE", 0), 2),
-                    "bookValue": round(ticker.info.get("bookValue", 0), 2)
+                    "industry": ticker.info.get("industry", "N/A")
                     }
                 else:
                     results[symbol] = {"error": "No data available"}
