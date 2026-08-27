@@ -9,6 +9,7 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  LAMBDA_FUNCTION_NAME: getStockData
 
 jobs:
   build-and-push:
@@ -32,7 +33,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-
       # ✅ Required for building ARM64 image on amd64 GitHub runner
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -54,13 +54,37 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-
-      - name: Update Lambda function to use new image
+      - name: Create or Update Lambda function
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-          LAMBDA_FUNCTION_NAME: get_stocks_data
+          LAMBDA_ROLE_ARN: ${{ secrets.LAMBDA_ROLE_ARN }}
         run: |
-          aws lambda update-function-code \
+          IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+          # Check if function already exists
+          if aws lambda get-function --function-name $LAMBDA_FUNCTION_NAME --region $AWS_REGION 2>/dev/null; then
+            echo "✅ Function exists — updating..."
+            aws lambda update-function-code \
+              --function-name $LAMBDA_FUNCTION_NAME \
+              --image-uri $IMAGE_URI \
+              --region $AWS_REGION
+          else
+            echo "🆕 Function not found — creating..."
+            aws lambda create-function \
+              --function-name $LAMBDA_FUNCTION_NAME \
+              --package-type Image \
+              --code ImageUri=$IMAGE_URI \
+              --role $LAMBDA_ROLE_ARN \
+              --architectures arm64 \
+              --timeout 60 \
+              --memory-size 512 \
+              --region $AWS_REGION
+          fi
+
+      - name: Wait for Lambda to be ready
+        run: |
+          aws lambda wait function-updated-v2 \
             --function-name $LAMBDA_FUNCTION_NAME \
-            --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            --region $AWS_REGION 2>/dev/null || true
+          echo "✅ Lambda function $LAMBDA_FUNCTION_NAME is ready!"
