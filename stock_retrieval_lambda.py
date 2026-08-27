@@ -1,5 +1,6 @@
 import json
 import yfinance as yf
+from datetime import datetime
 
 def lambda_handler(event, context):
     # CORS headers
@@ -33,7 +34,7 @@ def lambda_handler(event, context):
         # Fetch stock data for each symbol
         tickers = yf.Tickers(symbols)
         results = {}
-
+        results['retrieval_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Add retrieval time
         for symbol in symbols:
             symbol = symbol.strip()
             ticker = tickers.tickers.get(symbol)
